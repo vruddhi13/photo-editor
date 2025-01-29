@@ -29,6 +29,7 @@ eraser_size = 10
 undo_stack = []
 redo_stack = []
 
+# api from giphy website SR22BSIT092
 # API_KEY = "UReEZkcCaUziDjHsXBlsbmNawbHDJevT"
 # GIPHY_URL = f"https://api.giphy.com/v1/stickers/trending?api_key={API_KEY}&limit=30&rating=G"
 
