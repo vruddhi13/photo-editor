@@ -2,7 +2,7 @@ import tkinter as tk
 from tkinter.ttk import *
 from tkinter import *
 from tkinter import ttk
-from tkinter import filedialog, messagebox, Canvas, Button, Frame, Label, Scale, HORIZONTAL, font, colorchooser
+from tkinter import filedialog, messagebox, Canvas, Button, Frame, Label, Scale, HORIZONTAL, font, colorchooser, simpledialog
 from PIL import Image, ImageTk, ImageOps, ImageEnhance, ImageFilter, ImageDraw, ImageColor, ImageFont
 from tkinter.colorchooser import askcolor
 from PIL import Image as PILImage
@@ -29,7 +29,6 @@ eraser_size = 10
 undo_stack = []
 redo_stack = []
 
-# api from giphy website SR22BSIT092
 # API_KEY = "UReEZkcCaUziDjHsXBlsbmNawbHDJevT"
 # GIPHY_URL = f"https://api.giphy.com/v1/stickers/trending?api_key={API_KEY}&limit=30&rating=G"
 
@@ -81,10 +80,14 @@ def update_image_display(image):
     canvas.image = image_on_canvas
 
     restore_stickers()
-    # After updating the image, redraw text items
 
+    # Redraw all text after updating image to ensure it stays in place
     for text_id in text_ids:
-        canvas.tag_raise(text_id)
+        x, y = canvas.coords(text_id)
+        canvas.create_text(x, y, text=canvas.itemcget(text_id, "text"),
+                           font=canvas.itemcget(text_id, "font"),
+                           fill=canvas.itemcget(text_id, "fill"))
+    # After updating the image, redraw text items
 
     # Update the canvas with the scaled image
     # image_on_canvas = ImageTk.PhotoImage(scaled_image)
@@ -103,8 +106,8 @@ def restore_stickers():
     if hasattr(canvas, 'stickers'):
         print(f"Restoring {len(canvas.stickers)} stickers")
 
-        for sticker_id, (original_image, position, handle_id) in canvas.stickers.items():
-            sticker_image_tk = ImageTk.PhotoImage(original_image)
+        for sticker_id, (original_image, position, handle_id, current_size) in canvas.stickers.items():
+            sticker_image_tk = ImageTk.PhotoImage(original_image.resize(current_size, Image.LANCZOS))
             canvas.itemconfig(sticker_id, image=sticker_image_tk)
             canvas.image_refs[sticker_id] = sticker_image_tk  # Prevent garbage collection
 
@@ -114,8 +117,8 @@ def restore_stickers():
             canvas.tag_raise(sticker_id)  # Ensure it is on top of other elements
 
             # Update the handle position
-            handle_x = x + 25
-            handle_y = y + 25
+            handle_x = x + current_size[0] // 2
+            handle_y = y + current_size[1] // 2
             canvas.coords(handle_id, handle_x, handle_y, handle_x + 10, handle_y + 10)
             canvas.tag_raise(handle_id)
 
@@ -146,7 +149,7 @@ def save_image():
         # Get the stickers from the canvas
         if hasattr(canvas, 'stickers'):
             print("Stickers in canvas:", canvas.stickers)
-            for sticker_id, (original_image, position, current_size) in canvas.stickers.items():
+            for sticker_id, (original_image, position,handle_id,  current_size) in canvas.stickers.items():
                 if isinstance(original_image, PIL.Image.Image):
                     print(f"Sticker ID: {sticker_id}, Position: {position}, Size: {current_size}")
                     # Check if position is a tuple, if not, skip it
@@ -156,50 +159,54 @@ def save_image():
                         print(f"Invalid position for sticker ID {sticker_id}: {position}")
                         continue  # Skip if position is not a valid tuple
 
-                    sticker_image_resized = original_image
-                    print(f"original size : {original_image.size}")
+                    # sticker_image_resized = original_image
+                    # print(f"original size : {original_image.size}")
 
                     # Get canvas size and apply scaling to adjust sticker position
                     canvas_width = canvas.winfo_width()
                     canvas_height = canvas.winfo_height()
 
-
                     # resize the sticker image
                     adjusted_x = int(x * (image.width / canvas_width))
                     adjusted_y = int(y * (image.height / canvas_height))
 
+                    # Calculate the sticker position for pasting
+                    sticker_position = (int(adjusted_x - current_size[0] / 2), int(adjusted_y - current_size[1] / 2))
+
+                    # Resize the original image to the current size before pasting
+                    resized_sticker_image = original_image.resize(current_size, Image.LANCZOS)
+
                     # Add sticker to the combined image at its position
-                      # Resize sticker if needed
-                    sticker_position = (int(adjusted_x - current_size/2), int(adjusted_y - current_size/2))  # Adjust for centering the sticker
-                    print(f"Pasting sticker ID {sticker_id} at position: {sticker_position}, with size: {sticker_image_resized.size}")
-                    combined_image.paste(sticker_image_resized, sticker_position, sticker_image_resized.convert("RGBA"))
+                    print(f"Pasting sticker ID {sticker_id} at position: {sticker_position}, with size: {resized_sticker_image.size}")
+                    combined_image.paste(resized_sticker_image, sticker_position, resized_sticker_image.convert("RGBA"))
+                    print(f"Original Image Size: {original_image.size}")
+                    print(f"Current Size: {current_size}")
+                    print(f"Adjusted Position: {sticker_position}")
+    #text saving
+    draw = ImageDraw.Draw(combined_image)
 
-        #Add text to the combined image
-        draw = ImageDraw.Draw(combined_image)
+    for text_id in text_ids:
+        text_bbox = canvas.bbox(text_id)
+        text_x, text_y = text_bbox[0], text_bbox[1]
+        text = canvas.itemcget(text_id, "text")
+        font = canvas.itemcget(text_id, "font")
+        fill = canvas.itemcget(text_id, "fill")
 
-        for text_id in canvas.find_withtag("text"):
-            # Get all text elements
-            text_content = canvas.itemcget(text_id, "text")
-            text_font = canvas.itemcget(text_id, "font")
-            text_fill = canvas.itemcget(text_id, "fill")
-            position = canvas.coords(text_id)
+        # # Dynamically adjust font size
+        # current_font = font.split()
+        # font_size = int(current_font[1]) if len(current_font) > 1 else 15  # Get current size
+        # font_obj = ImageFont.truetype(current_font[0], size=font_size)
 
-            # Debugging: Print the font string
-            print(f"Font string for text ID {text_id}: {text_font}")
+        try:
+            current_font = font.split()
+            font_size = int(current_font[1]) if len(current_font) > 1 else 15  # Get current size
+            font_obj = ImageFont.truetype(current_font[0], size=font_size)
+        except OSError:
+            font_obj = ImageFont.load_default()  # Fallback to the default font
 
-            # Clean the font string and parse it
-            font_parts = text_font.split()
-            font_family = font_parts[0] if len(font_parts) > 0 else "Arial"
-            font_size = int(font_parts[1]) if len(font_parts) > 1 else 20
-
-            # Load the font
-            try:
-                font = ImageFont.truetype(f"{font_family}.ttf", font_size)
-            except IOError:
-                font = ImageFont.load_default()
-            adjusted_x = int(position[0] * (image.width / canvas_width))
-            adjusted_y = int(position[1] * (image.height / canvas_height))
-            draw.text((adjusted_x, adjusted_y), text_content, fill=text_fill, font=font)
+        # Draw the text on the image
+        print(f"Drawing text '{text}' at ({text_x}, {text_y}) with font size {font_size}")
+        draw.text((text_x, text_y), text, font=font_obj, fill=fill)
 
 
     file_path = filedialog.asksaveasfilename(defaultextension=".png",
@@ -212,60 +219,13 @@ def save_image():
             # combined_image = Image.alpha_composite(image.convert("RGBA"), drawing_layer)
             combined_image.save(file_path)
         except Exception as e:
-            messagebox.showerror("Error", f"failed to save {e}")
+            messagebox.showerror("Error","failed to save {e}")
             print(f"Error details: {e}")
 
     else:
         messagebox.showerror("Error", "No image to save")
 
 
-# def save_image():
-#     global image, drawing_layer, canvas_width, canvas_height
-#
-#     if image is not None and drawing_layer is not None:
-#         # Combine the base image with the drawing layer
-#         combined_image = Image.alpha_composite(image.convert("RGBA"), drawing_layer)
-#
-#         # Add text to the combined image
-#         draw = ImageDraw.Draw(combined_image)
-#
-#         for text_id in canvas.find_withtag("text"):  # Get all text elements
-#             text_content = canvas.itemcget(text_id, "text")
-#             text_font = canvas.itemcget(text_id, "font")
-#             text_fill = canvas.itemcget(text_id, "fill")
-#             position = canvas.coords(text_id)
-#
-#             # Debugging: Print the font string
-#             print(f"Font string for text ID {text_id}: {text_font}")
-#
-#             # Clean the font string and parse it
-#             font_parts = text_font.split()
-#             font_family = font_parts[0] if len(font_parts) > 0 else "Arial"
-#             font_size = int(font_parts[1]) if len(font_parts) > 1 else 20
-#
-#             # Load the font
-#             try:
-#                 font = ImageFont.truetype(f"{font_family}.ttf", font_size)
-#             except IOError:
-#                 font = ImageFont.load_default()
-#             adjusted_x = int(position[0] * (image.width / canvas_width))
-#             adjusted_y = int(position[1] * (image.height / canvas_height))
-#             draw.text((adjusted_x, adjusted_y), text_content, fill=text_fill, font=font)
-#
-#         # Prompt user to save the image
-#         file_path = filedialog.asksaveasfilename(defaultextension=".png",
-#                                                  filetypes=[("PNG files", "*.png"), ("JPEG files", "*.jpg")])
-#
-#         if file_path:
-#             try:
-#                 combined_image.save(file_path)
-#                 print(f"Image saved successfully at {file_path}")
-#             except Exception as e:
-#                 messagebox.showerror("Error", f"Failed to save: {e}")
-#                 print(f"Error details: {e}")
-#         else:
-#             messagebox.showerror("Error", "No image to save")
-#
 
 # Edit menu revert to original
 def revert_to_original():
@@ -333,21 +293,19 @@ def on_press(event):
     global crop_rect
     crop_rect = (event.x, event.y, event.x, event.y)  # Initialize crop rectangle
 
-
 def on_drag(event):
     global crop_rect
     crop_rect = (crop_rect[0], crop_rect[1], event.x, event.y)
+    redraw_crop_rectangle()
 
 def on_release(event):
-    pass  # Crop the image when mouse is released
+    redraw_crop_rectangle() # Crop the image when mouse is released
 
 def redraw_crop_rectangle():
-    global crop_rect
     canvas.delete("crop_rect")
     if crop_rect:
         x1, y1, x2, y2 = crop_rect
         canvas.create_rectangle(x1, y1, x2, y2, outline="red", width=2, tags="crop_rect")
-        canvas.update()
 
 # Menu or button to trigger cropping action
 def on_crop_menu_option():
@@ -642,7 +600,7 @@ def hide_sticker_sidebar():
     update_image_display(image)
 
 def show_text_sidebar():
-    #deactivate_tools()
+    deactivate_tools()
     global canvas_width
     text_sidebar_canvas.pack(side=tk.LEFT, fill=tk.Y, padx=10)
     canvas_width = 1150
@@ -650,7 +608,7 @@ def show_text_sidebar():
     update_image_display(image)
 
 def hide_text_sidebar():
-    #deactivate_tools()
+    deactivate_tools()
     global canvas_width
     text_sidebar_canvas.pack_forget()
     canvas_width = 1450
@@ -1028,7 +986,6 @@ def create_text_option(parent, label_text, command):
 
 #stickers function
 def add_sticker_to_canvas(sticker_image, original_image):
-
     global image_on_canvas
     # Default position (center of the canvas)
     x = canvas_width // 2
@@ -1043,7 +1000,8 @@ def add_sticker_to_canvas(sticker_image, original_image):
     # Store the image reference to prevent garbage collection
     if not hasattr(canvas, 'stickers'):
         canvas.stickers = {}
-    canvas.stickers[sticker_id] = (original_image, (x, y),  handle_id)
+    current_size = (50,50)
+    canvas.stickers[sticker_id] = (original_image, (x, y),  handle_id, current_size)
     print(f"Sticker Image Type: {type(original_image)}")
 
     if not hasattr(canvas, 'image_refs'):
@@ -1074,11 +1032,11 @@ def on_handle_move(event):
     if current_handle:
         sticker_id = get_sticker_id_from_handle(current_handle)
         if sticker_id:
-            original_image, position, handle_id = canvas.stickers[sticker_id]
+            original_image, position, handle_id, current_size = canvas.stickers[sticker_id]
 
             # Calculate the new size based on the handle's movement
-            current_coords = canvas.coords(current_handle)
-            new_size = int(event.y - position[1] + 50)
+            # current_coords = canvas.coords(current_handle)
+            # new_size = int(event.y - position[1] + 50)
 
             # Calculate new size based on handle movement
             new_size = int(event.y - position[1] + 50)
@@ -1088,7 +1046,7 @@ def on_handle_move(event):
 
                 # Update the sticker on the canvas
                 canvas.itemconfig(sticker_id, image=resized_image_tk)
-                canvas.stickers[sticker_id] = (original_image, position, handle_id)  # Update the stored image
+                canvas.stickers[sticker_id] = (original_image, position, handle_id, (new_size, new_size))  # Update the stored image
 
                 # Update the position of the handle
                 handle_x = position[0] + new_size // 2
@@ -1096,7 +1054,6 @@ def on_handle_move(event):
                 canvas.coords(handle_id, handle_x, handle_y, handle_x + 2, handle_y + 2)
                 # Keep a reference to avoid garbage collection
                 canvas.image_refs[sticker_id] = resized_image_tk
-
 
 
 def on_handle_release(event):
@@ -1111,7 +1068,7 @@ def on_handle_release(event):
 
 def get_sticker_id_from_handle(handle_id):
     """Find the sticker associated with a resizing handle."""
-    for sticker_id, (sticker_image, position, h_id) in canvas.stickers.items():
+    for sticker_id, (sticker_image, position, h_id, current_size) in canvas.stickers.items():
         if h_id == handle_id:
             return sticker_id
     return None
@@ -1141,17 +1098,17 @@ def on_sticker_move(event):
         new_y = current_coords[1] + dy
 
         # Canvas boundaries
-        canvas_width = canvas.winfo_width()
-        canvas_height = canvas.winfo_height()
+        # canvas_width = canvas.winfo_width()
+        # canvas_height = canvas.winfo_height()
 
         # Check boundaries before moving
         if 0 < new_x < canvas_width and 0 < new_y < canvas_height:
             canvas.move(current_sticker, dx, dy)
 
             # Update the sticker position in the dictionary
-            sticker_image, position, handle_id = canvas.stickers[current_sticker]
+            sticker_image, position, handle_id, current_size = canvas.stickers[current_sticker]
             new_position = (position[0] + dx, position[1] + dy)
-            canvas.stickers[current_sticker] = (sticker_image, new_position, handle_id)
+            canvas.stickers[current_sticker] = (sticker_image, new_position, handle_id,current_size)
 
             # Move the handle
             canvas.move(handle_id, dx, dy)
@@ -1282,17 +1239,8 @@ def delete_selected_sticker():
 #     redo_button.pack(side=tk.RIGHT, padx=5, pady=5)
 
 #----------------------Text Tool---------------------------------
-# Store text IDs globally
 text_ids = []
-
 select_text_id = None
-text_styles = {"Normal": ("Arial", 20, "normal"),  # Default styles
-               "Bold": (r"E:\daily_bubble\DailyBubble.ttf", 20, "bold"),
-               "Italic": ("Arial", 20, "italic"),
-               "Bold Italic": ("Arial", 20, "bold italic"),
-               "Underlined": ("Verdana", 20, "underline"),
-               "Script": ("Lucida Handwriting", 24, "normal"),
-               }
 
 def add_textbox():
     # Create a text box at the center of the canvas
@@ -1300,6 +1248,7 @@ def add_textbox():
     text_id = canvas.create_text(canvas_width // 2, canvas_height // 2, text="Your Text Here",
                                  font=("Arial", 15), fill="black", tags="text")
     text_ids.append(text_id)  # Store the text ID
+
 
     # Create a rectangle around the text for resizing
     bbox = canvas.bbox(text_id)
@@ -1319,17 +1268,6 @@ def move_text(event, text_id, rect_id):
     canvas.coords(text_id, event.x, event.y)
     update_rectangle(text_id, rect_id)
 
-# def resize_text(event, text_id, rect_id):
-#     current_font = canvas.itemcget(text_id, "font")
-#     # Resize the text by dragging the rectangle
-#     font_family, font_size, *font_styles = current_font.split()
-#     new_size = int(abs(event.y - canvas.coords(rect_id)[1]))  # Calculate font size based on drag distance
-#     if new_size > 5:  # Minimum font size
-#         # Rebuild the font configuration with the new size
-#         new_font = (font_family, new_size, " ".join(font_styles))
-#         canvas.itemconfig(text_id, font=new_font)
-#         update_rectangle(text_id, rect_id)
-
 def resize_text(event, text_id, rect_id):
     # Always get the current font properties dynamically
     current_font = canvas.itemcget(text_id, "font")
@@ -1339,7 +1277,6 @@ def resize_text(event, text_id, rect_id):
     font_family = font_parts[0] if len(font_parts) > 0 else "Arial"  # Default to Arial if missing
     font_size = int(font_parts[1])if len(font_parts) > 1 else 20  # Default to size 20 if missing
 
-
     # Calculate the new font size
     new_size = int(abs(event.y - canvas.coords(rect_id)[1]))  # Based on drag distance
     if new_size > 5:  # Minimum font size
@@ -1347,7 +1284,6 @@ def resize_text(event, text_id, rect_id):
         new_font = (font_family, new_size)
         canvas.itemconfig(text_id, font=new_font)
         update_rectangle(text_id, rect_id)
-
 
 def update_rectangle(text_id, rect_id):
     # Update the rectangle position around the text
@@ -1383,54 +1319,6 @@ def select_text(text_id):
     global selected_text_id
     selected_text_id = text_id
 
-def add_new_style():
-    # Add a new text style dynamically
-    def save_style():
-        style_name = style_name_entry.get()
-        font_family = font_family_entry.get()
-        font_size = int(font_size_entry.get())
-        font_weight = "bold" if bold_var.get() else "normal"
-        font_slant = "italic" if italic_var.get() else "roman"
-        new_style = (font_family, font_size, f"{font_weight} {font_slant}".strip())
-        text_styles[style_name] = new_style
-        style_dropdown['values'] = list(text_styles.keys())
-        add_style_window.destroy()
-
-    add_style_window = tk.Toplevel(root)
-    add_style_window.title("Add New Style")
-
-    tk.Label(add_style_window, text="Style Name:").grid(row=0, column=0, padx=5, pady=5)
-    style_name_entry = tk.Entry(add_style_window)
-    style_name_entry.grid(row=0, column=1, padx=5, pady=5)
-
-    tk.Label(add_style_window, text="Font Family:").grid(row=1, column=0, padx=5, pady=5)
-    font_family_entry = tk.Entry(add_style_window)
-    font_family_entry.grid(row=1, column=1, padx=5, pady=5)
-
-    tk.Label(add_style_window, text="Font Size:").grid(row=2, column=0, padx=5, pady=5)
-    font_size_entry = tk.Entry(add_style_window)
-    font_size_entry.grid(row=2, column=1, padx=5, pady=5)
-
-    bold_var = tk.BooleanVar()
-    tk.Checkbutton(add_style_window, text="Bold", variable=bold_var).grid(row=3, column=0, padx=5, pady=5)
-    italic_var = tk.BooleanVar()
-    tk.Checkbutton(add_style_window, text="Italic", variable=italic_var).grid(row=3, column=1, padx=5, pady=5)
-
-    save_button = tk.Button(add_style_window, text="Save Style", command=save_style)
-    save_button.grid(row=4, column=0, columnspan=2, pady=10)
-
-def apply_text_style(style_name):
-    # Apply the selected text style to the currently selected text
-    global selected_text_id
-    if selected_text_id and style_name in text_styles:
-        canvas.itemconfig(selected_text_id, font=text_styles[style_name])
-
-def apply_font_style(font_name):
-    # Apply the selected font style to the currently selected text
-    global selected_text_id
-    if selected_text_id:
-        # Use the selected font with a default size of 20
-        canvas.itemconfig(selected_text_id, font=(font_name, 20))
 
 
 # GUI code
@@ -1798,30 +1686,6 @@ text_frame.pack(side=tk.TOP, fill=tk.X,pady=5)
 
 create_text_option(text_sidebar_frame, "𝚃 Add a text box", add_textbox)
 create_text_option(text_sidebar_frame, "Change Text Color", change_text_color)
-
-
-# Dropdown menu for text styles
-style_dropdown = ttk.Combobox(text_sidebar_frame, values=list(text_styles.keys()), state="readonly", width=17)
-style_dropdown.set("Normal")
-style_dropdown.pack(padx=10)
-
-# Apply text style button
-apply_style_button = tk.Button(text_sidebar_frame, text="Apply Style", command=lambda: apply_text_style(style_dropdown.get()), bg=frame_bg, fg=font_fg)
-apply_style_button.pack(pady=10)
-
-# Button to add new styles
-add_style_button = tk.Button(text_sidebar_frame, text="Add New Style", command=add_new_style, bg=frame_bg, fg=font_fg)
-add_style_button.pack(pady=10)
-
-# Dropdown menu for font styles
-font_dropdown = ttk.Combobox(text_sidebar_frame, values=available_fonts, state="readonly", width=17)
-font_dropdown.set("Select Font Style")
-font_dropdown.pack(pady=10, padx=10)
-
-# Apply font style button
-apply_font_button = tk.Button(text_sidebar_frame, text="Apply Font", command=lambda: apply_font_style(font_dropdown.get()),bg=frame_bg, fg=font_fg)
-apply_font_button.pack(pady=10, padx=5)
-
 # -------------------------------------------------------------------
 
 # Create Button with Icon and Text
