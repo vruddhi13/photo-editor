@@ -9,7 +9,17 @@ from PIL import Image as PILImage
 import PIL
 from functools import partial
 import numpy as np
+from rembg import remove
+import io
+import onnxruntime
+import logging
+logging.basicConfig(level=logging.DEBUG)
 
+# Disable PIL's internal debug output
+logging.getLogger("PIL").setLevel(logging.WARNING)
+
+# Your normal logging configuration
+logging.basicConfig(level=logging.WARNING)
 
 # Function
 crop_rect = None
@@ -185,28 +195,36 @@ def save_image():
     #text saving
     draw = ImageDraw.Draw(combined_image)
 
+    text_ids = canvas.find_withtag("text")  # Ensure we get text objects
+
     for text_id in text_ids:
         text_bbox = canvas.bbox(text_id)
-        text_x, text_y = text_bbox[0], text_bbox[1]
+        if text_bbox:
+            text_x, text_y = text_bbox[0], text_bbox[1]
+        else:
+            continue  # Skip if bbox is invalid
+
         text = canvas.itemcget(text_id, "text")
         font = canvas.itemcget(text_id, "font")
-        fill = canvas.itemcget(text_id, "fill")
+        fill = canvas.itemcget(text_id, "fill") or "black"
 
-        # # Dynamically adjust font size
-        # current_font = font.split()
-        # font_size = int(current_font[1]) if len(current_font) > 1 else 15  # Get current size
-        # font_obj = ImageFont.truetype(current_font[0], size=font_size)
+        # Adjust text coordinates
+        adjusted_text_x = int((text_x - x_offset) / scale_factor)
+        adjusted_text_y = int((text_y - y_offset) / scale_factor)
+
+        # Extract font family and size
+        current_font = font.split()
+        font_family = current_font[0] if len(current_font) > 0 else "Arial"
+        font_size = int(current_font[1]) if len(current_font) > 1 else 15
 
         try:
-            current_font = font.split()
-            font_size = int(current_font[1]) if len(current_font) > 1 else 15  # Get current size
-            font_obj = ImageFont.truetype(current_font[0], size=font_size)
+            font_obj = ImageFont.truetype(font_family, size=font_size)
         except OSError:
-            font_obj = ImageFont.load_default()  # Fallback to the default font
+            print(f"Font '{font_family}' not found, using default.")
+            font_obj = ImageFont.load_default()
 
-        # Draw the text on the image
-        print(f"Drawing text '{text}' at ({text_x}, {text_y}) with font size {font_size}")
-        draw.text((text_x, text_y), text, font=font_obj, fill=fill)
+        print(f"Drawing text '{text}' at ({adjusted_text_x}, {adjusted_text_y}) with font size {font_size}")
+        draw.text((adjusted_text_x, adjusted_text_y), text, font=font_obj, fill=fill)
 
 
     file_path = filedialog.asksaveasfilename(defaultextension=".png",
@@ -225,6 +243,65 @@ def save_image():
     else:
         messagebox.showerror("Error", "No image to save")
 
+# def save_image():
+#     global image, drawing_layer, canvas_width, canvas_height
+#
+#     if image is not None and drawing_layer is not None:
+#         combined_image = Image.alpha_composite(image.convert("RGBA"), drawing_layer)
+#
+#         # Handle text drawing
+#         draw = ImageDraw.Draw(combined_image)
+#         text_ids = canvas.find_withtag("text")  # Ensure we get text objects
+#
+#         for text_id in text_ids:
+#             text_bbox = canvas.bbox(text_id)
+#             if not text_bbox:
+#                 continue  # Skip invalid text objects
+#
+#             text_x, text_y = text_bbox[0], text_bbox[1]
+#             text = canvas.itemcget(text_id, "text")
+#             font_string = canvas.itemcget(text_id, "font")  # Example: "Arial 15 bold"
+#             fill = canvas.itemcget(text_id, "fill") or "black"
+#
+#             # Adjust text coordinates based on scaling
+#             adjusted_text_x = int((text_x - x_offset) / scale_factor)
+#             adjusted_text_y = int((text_y - y_offset) / scale_factor)
+#
+#             # Extract font family, size, and style
+#             font_parts = font_string.split()
+#             font_family = font_parts[0] if len(font_parts) > 0 else "Arial"
+#             font_size = int(font_parts[1]) if len(font_parts) > 1 else 15
+#             font_styles = font_parts[2:] if len(font_parts) > 2 else []  # Extract styles like bold, italic
+#
+#             # Determine the correct font file
+#             font_path = r"E:/PyCharm Community Edition 2024.2.1/PythonProjects/photo_customize/text/quartzo-font/QuartzoBold-W9lv.ttf"  # Default font
+#             if "bold" in font_styles and "italic" in font_styles:
+#                 font_path = r"E:/PyCharm Community Edition 2024.2.1/PythonProjects/photo_customize/text/quartzo-font/QuartzoBold-W9lv.ttf"  # Bold + Italic
+#             elif "bold" in font_styles:
+#                 font_path = r"E:/PyCharm Community Edition 2024.2.1/PythonProjects/photo_customize/text/quartzo-font/QuartzoBold-W9lv.ttf"  # Bold
+#
+#             # Try to load the selected font, fallback if unavailable
+#             try:
+#                 font_obj = ImageFont.truetype(font_path, size=font_size)
+#             except OSError:
+#                 print(f"Font '{font_path}' not found, using default.")
+#                 font_obj = ImageFont.load_default()
+#
+#             print(f"Drawing text '{text}' at ({adjusted_text_x}, {adjusted_text_y}) with font '{font_path}' and size {font_size}")
+#             draw.text((adjusted_text_x, adjusted_text_y), text, font=font_obj, fill=fill)
+#
+#         # Ask for save location
+#         file_path = filedialog.asksaveasfilename(defaultextension=".png",
+#                                                  filetypes=[("PNG files", "*.png"), ("JPEG files", "*.jpg")])
+#
+#         if file_path:
+#             try:
+#                 combined_image.save(file_path)
+#             except Exception as e:
+#                 messagebox.showerror("Error", f"Failed to save: {e}")
+#                 print(f"Error details: {e}")
+#         else:
+#             messagebox.showerror("Error", "No image to save")
 
 
 # Edit menu revert to original
@@ -598,6 +675,11 @@ def hide_sticker_sidebar():
     canvas_width = 1450
     canvas.config(width=canvas_width)
     update_image_display(image)
+    canvas.bind("<ButtonPress-1>", on_press)  # Left mouse button press to start cropping
+    canvas.bind("<B1-Motion>", on_drag)  # Dragging the mouse while holding the left button
+    canvas.bind("<ButtonRelease-1>", on_release)  # Left mouse button release to finalize cropping
+    canvas.bind("<Configure>", lambda event: update_image_display(image) if image else None)
+
 
 def show_text_sidebar():
     deactivate_tools()
@@ -607,6 +689,7 @@ def show_text_sidebar():
     canvas.config(width=canvas_width)
     update_image_display(image)
 
+
 def hide_text_sidebar():
     deactivate_tools()
     global canvas_width
@@ -614,6 +697,32 @@ def hide_text_sidebar():
     canvas_width = 1450
     canvas.config(width=canvas_width)
     update_image_display(image)
+    canvas.bind("<ButtonPress-1>", on_press)  # Left mouse button press to start cropping
+    canvas.bind("<B1-Motion>", on_drag)  # Dragging the mouse while holding the left button
+    canvas.bind("<ButtonRelease-1>", on_release)  # Left mouse button release to finalize cropping
+    canvas.bind("<Configure>", lambda event: update_image_display(image) if image else None)
+
+
+def show_background_sidebar():
+    deactivate_tools()
+    global canvas_width
+    background_sidebar_canvas.pack(side=tk.LEFT, fill=tk.Y, padx=10)
+    canvas_width=1150
+    canvas.config(width=canvas_width)
+    update_image_display(image)
+
+
+def hide_background_sidebar():
+    deactivate_tools()
+    global canvas_width
+    background_sidebar_canvas.pack_forget()
+    canvas_width=1450
+    canvas.config(width=canvas_width)
+    update_image_display(image)
+    canvas.bind("<ButtonPress-1>", on_press)  # Left mouse button press to start cropping
+    canvas.bind("<B1-Motion>", on_drag)  # Dragging the mouse while holding the left button
+    canvas.bind("<ButtonRelease-1>", on_release)  # Left mouse button release to finalize cropping
+    canvas.bind("<Configure>", lambda event: update_image_display(image) if image else None)
 
 
 # Function to apply brightness adjustment
@@ -936,7 +1045,6 @@ def change_line_width(value):
     global line_width
     line_width = max(2, int(float(value)))
 
-
 # def eraser_line_width(value):
 #     global eraser_line
 #     eraser_line = max(2, round(float(value)))
@@ -976,6 +1084,15 @@ def create_sticker_option(parent, label_text, sticker_tk, callback):
     return frame
 
 def create_text_option(parent, label_text, command):
+    frame = tk.Frame(parent, bg=frame_bg)
+    frame.pack(fill=tk.X, pady=5, padx=10)
+
+    button = tk.Button(frame, text=label_text, command=command, bg=frame_bg, fg=font_fg)
+    button.pack(side=tk.TOP, fill=tk.X, pady=10, padx=10)
+
+    return frame
+
+def create_background_option(parent, label_text, command):
     frame = tk.Frame(parent, bg=frame_bg)
     frame.pack(fill=tk.X, pady=5, padx=10)
 
@@ -1319,6 +1436,99 @@ def select_text(text_id):
     global selected_text_id
     selected_text_id = text_id
 
+#-------------------------------background remover------------------------------------------------------
+
+
+def remove_background():
+    global image, canvas, img_tk, drawing_layer, scale_factor, offset_x, offset_y
+
+    # **Check if offset_x and offset_y exist, otherwise set default values**
+    if 'offset_x' not in globals():
+        offset_x = 0  # Default value
+    if 'offset_y' not in globals():
+        offset_y = 0  # Default value
+
+    if image is None:
+        messagebox.showerror("Error", "No image loaded!")
+        return
+
+    try:
+        canvas_width = canvas.winfo_width()
+        canvas_height = canvas.winfo_height()
+
+        image_rgba = image.convert('RGBA')
+        print("Image converted to RGBA.")
+
+        img_byte_arr = io.BytesIO()
+        image_rgba.save(img_byte_arr, format="PNG")
+        img_bytes = img_byte_arr.getvalue()
+
+        removed_bg_bytes = remove(img_bytes)
+        print("Background removal process completed.")
+
+        if not removed_bg_bytes or not isinstance(removed_bg_bytes, bytes):
+            messagebox.showerror("Error", "Background removal failed: No valid output.")
+            return
+
+        new_image = Image.open(io.BytesIO(removed_bg_bytes)).convert('RGBA')
+        print(f"Image loaded after background removal. Size: {new_image.size}")
+        print(f"Current scale factor: {scale_factor}")
+
+        # Apply the previous scale factor to maintain consistency
+
+        if scale_factor is None or scale_factor <= 0:
+            scale_factor = 1.0  # Default to 1.0 if not set
+
+        # **Apply the previous scale factor to maintain consistency**
+        new_width = int(new_image.width * scale_factor)
+        new_height = int(new_image.height * scale_factor)
+        new_image = new_image.resize((new_width, new_height), Image.LANCZOS)
+
+        drawing_layer = drawing_layer.resize((new_width, new_height), Image.LANCZOS)
+        print(f"Resized after applying scale factor: {new_image.size}")
+
+        final_image = Image.alpha_composite(new_image, drawing_layer)
+
+        # Resize final image to canvas size
+        final_image = final_image.resize((canvas_width, canvas_height), Image.LANCZOS)
+        print(f"Final image resized to: {final_image.size}")
+
+        # Reset global variables
+        image = final_image
+        drawing_layer = Image.new("RGBA", image.size, (0, 0, 0, 0))
+
+        update_image_display(image)
+
+    except Exception as e:
+        messagebox.showerror("Error", f"Failed to remove background: {e}")
+
+
+def add_new_background():
+    global image, img_tk
+
+    if image is None:
+        messagebox.showerror("Error", "No image to apply background!")
+        return
+
+    file_path = filedialog.askopenfilename(filetypes=[("Image files", "*.png;*.jpg;*.jpeg")])
+    if not file_path:
+        return
+
+    try:
+        bg_image = Image.open(file_path).convert("RGBA")  # Load new background
+        bg_image = bg_image.resize(image.size)  # Match the sizes
+
+        # Ensure the image has an alpha channel
+        if image.mode != 'RGBA':
+            image = image.convert('RGBA')
+
+        # Merge images
+        combined = Image.alpha_composite(bg_image, image)  # Merge images
+        image = combined
+
+        update_image_display(image)
+    except Exception as e:
+        messagebox.showerror("Error", f"Failed to apply background: {e}")
 
 
 # GUI code
@@ -1432,6 +1642,8 @@ def toggle_sidebar():
             hide_sticker_sidebar()
         elif text_sidebar_canvas.winfo_ismapped():
             hide_text_sidebar()
+        elif background_sidebar_canvas.winfo_ismapped():
+            hide_background_sidebar()
         show_filter_sidebar()
 
 
@@ -1454,6 +1666,7 @@ adjust_icon_path = r"E:/PyCharm Community Edition 2024.2.1/PythonProjects/photo_
 draw_icon_path = r"E:/PyCharm Community Edition 2024.2.1/PythonProjects/photo_customize/assests/Color Picker.png"
 sticker_icon_path = r"E:/PyCharm Community Edition 2024.2.1/PythonProjects/photo_customize/assests/Sticker.png"
 text_icon_path = r"E:/PyCharm Community Edition 2024.2.1/PythonProjects/photo_customize/assests/Type 01.png"
+background_icon_path = r"E:/PyCharm Community Edition 2024.2.1/PythonProjects/photo_customize/assests/Picture Frame.png"
 
 # Load and resize images for buttons
 resize_icon = Image.open(resize_icon_path).resize((30, 30))
@@ -1462,6 +1675,7 @@ adjust_icon = Image.open(adjust_icon_path).resize((30, 30))
 draw_icon = Image.open(draw_icon_path).resize((30, 30))
 sticker_icon = Image.open(sticker_icon_path).resize((30, 30))
 text_icon = Image.open(text_icon_path).resize((30,30))
+background_icon = Image.open(background_icon_path).resize((30,30))
 
 # convert to Tkinter-compatible images
 resize_icon_tk = ImageTk.PhotoImage(resize_icon)
@@ -1470,11 +1684,11 @@ adjust_icon_tk = ImageTk.PhotoImage(adjust_icon)
 draw_icon_tk = ImageTk.PhotoImage(draw_icon)
 sticker_icon_tk = ImageTk.PhotoImage(sticker_icon)
 text_icon_tk = ImageTk.PhotoImage(text_icon)
+background_icon_tk = ImageTk.PhotoImage(background_icon)
 
 # Filter Frame
 filter_frame = tk.Frame(main_frame, background=frame_bg)
 filter_frame.pack(side=tk.TOP, fill=tk.X,pady=5)
-
 
 # ---------------------Adjustment-------------------
 # toggler of adjust
@@ -1490,6 +1704,8 @@ def toggle_adjust_sidebar():
             hide_sticker_sidebar()
         elif text_sidebar_canvas.winfo_ismapped():
             hide_text_sidebar()
+        elif background_sidebar_canvas.winfo_ismapped():
+            hide_background_sidebar()
         show_adjust_sidebar()
         is_draw_tool_active = False
         is_erasing = False
@@ -1530,6 +1746,8 @@ def toggle_draw_sidebar():
             hide_sticker_sidebar()
         elif text_sidebar_canvas.winfo_ismapped():
             hide_text_sidebar()
+        elif background_sidebar_canvas.winfo_ismapped():
+            hide_background_sidebar()
         show_draw_sidebar()
         is_draw_tool_active = True
 
@@ -1622,6 +1840,8 @@ def toggle_sticker_sidebar():
             hide_draw_sidebar()
         elif text_sidebar_canvas.winfo_ismapped():
             hide_text_sidebar()
+        elif background_sidebar_canvas.winfo_ismapped():
+            hide_background_sidebar()
         show_sticker_sidebar()
 
 
@@ -1669,6 +1889,8 @@ def toggle_text_sidebar():
             hide_draw_sidebar()
         elif sticker_sidebar_canvas.winfo_ismapped():
             hide_sticker_sidebar()
+        elif background_sidebar_canvas.winfo_ismapped():
+            hide_background_sidebar()
         show_text_sidebar()
         canvas.update_idletasks()
 
@@ -1686,7 +1908,36 @@ text_frame.pack(side=tk.TOP, fill=tk.X,pady=5)
 
 create_text_option(text_sidebar_frame, "𝚃 Add a text box", add_textbox)
 create_text_option(text_sidebar_frame, "Change Text Color", change_text_color)
-# -------------------------------------------------------------------
+
+# ----------------------------background canvas---------------------------------------
+def toggle_background_sidebar():
+    if background_sidebar_canvas.winfo_ismapped():
+        hide_text_sidebar()
+    else:
+        if sidebar_canvas.winfo_ismapped():
+            hide_filter_sidebar()
+        elif adjustment_sidebar_canvas.winfo_ismapped():
+            hide_adjust_sidebar()
+        elif draw_sidebar_canvas.winfo_ismapped():
+            hide_draw_sidebar()
+        elif sticker_sidebar_canvas.winfo_ismapped():
+            hide_sticker_sidebar()
+        elif text_sidebar_canvas.winfo_ismapped():
+            hide_text_sidebar()
+        show_background_sidebar()
+        # canvas.update_idletasks()
+
+background_sidebar_canvas = Canvas(root,width=150, height=canvas_height, background=frame_bg)
+background_sidebar_frame = Frame(background_sidebar_canvas, background=frame_bg)
+
+background_sidebar_canvas.create_window((0,0), window=background_sidebar_frame, anchor='nw')
+
+background_frame = tk.Frame(main_frame, background=frame_bg)
+background_frame.pack(side=tk.TOP, fill=tk.X,pady=5)
+
+create_background_option(background_sidebar_frame, "Remove Background", remove_background)
+create_background_option(background_sidebar_frame, "Add Background", add_new_background)
+ #-----------------------------------------------------------
 
 # Create Button with Icon and Text
 def create_icon_button(frame, image, text, command):
@@ -1718,6 +1969,7 @@ create_icon_button(adjust_frame, adjust_icon_tk, "Adjust", toggle_adjust_sidebar
 create_icon_button(draw_frame, draw_icon_tk, "Draw", toggle_draw_sidebar)
 create_icon_button(sticker_frame, sticker_icon_tk, "Sticker", toggle_sticker_sidebar)
 create_icon_button(text_frame, text_icon_tk, "Text", toggle_text_sidebar)
+create_icon_button(background_frame, background_icon_tk, "Cutout", toggle_background_sidebar)
 
 # ---------------Canvas----------------
 # Canvas for image display (Expands to the right of the sidebar)
